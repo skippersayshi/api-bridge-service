@@ -2,7 +2,8 @@ import os, json, uuid, sqlite3, re
 from datetime import datetime
 from contextlib import asynccontextmanager
 import anthropic, httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi.security import APIKeyHeader
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import uvicorn
@@ -34,6 +35,13 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
+API_KEY = os.environ.get("API_KEY", "")
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def verify_key(key: str = Security(_api_key_header)):
+    if API_KEY and key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key. Set X-API-Key header.")
+
 app = FastAPI(title="API Bridge Service", lifespan=lifespan)
 
 def get_client():
@@ -58,7 +66,7 @@ def extract_json(text: str) -> dict:
                 pass
     return {}
 
-@app.post("/api/bridge")
+@app.post("/api/bridge", dependencies=[Depends(verify_key)])
 async def bridge(req: BridgeRequest):
     exec_id = str(uuid.uuid4())
     created_at = datetime.utcnow().isoformat()
